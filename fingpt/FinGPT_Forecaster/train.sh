@@ -4,11 +4,11 @@ export TOKENIZERS_PARALLELISM=0
 
 
 deepspeed \
---include localhost:2,3 \
+--include localhost:0,1,2,3 \
 train_lora.py \
---run_name dow30v3-llama2-5e-5lr-qkvogud \
+--run_name crpyto-2023-4-llama2-5e-5lr-qkvogud \
 --base_model llama2 \
---dataset dow30-20230601-20230930-llama,dow30nobasics-20230601-20230930-llama,dow30v3-20221231-20230531-llama*2 \
+--dataset fingpt-forecaster-crypto-20230125-20240125-1-4-065 \
 --max_length 4096 \
 --batch_size 1 \
 --gradient_accumulation_steps 16 \

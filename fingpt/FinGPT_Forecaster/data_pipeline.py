@@ -17,6 +17,7 @@ def main(args):
     min_past_weeks = args['min_past_weeks']
     max_past_weeks = args['max_past_weeks']
     train_ratio = args['train_ratio']
+    acquire_data = args['acquire_data']
 
     with_basics = True
     if index_name == "dow":
@@ -36,14 +37,15 @@ def main(args):
     os.makedirs(data_dir, exist_ok=True)
     
     # Acquire data
-    print("Acquiring data")
-    for symbol in tqdm(index):
-        print(f"Processing {symbol}")
-        prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=with_basics)
+    if acquire_data:
+        print("Acquiring data")
+        for symbol in tqdm(index):
+            print(f"Processing {symbol}")
+            prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=with_basics)
 
-    # Generate prompt and query GPT-4
-    print("Generating prompts and querying GPT-4")
-    query_gpt4(index, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics=with_basics)
+    # # Generate prompt and query GPT-4
+    # print("Generating prompts and querying GPT-4")
+    # query_gpt4(index, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics=with_basics)
 
     # Transform into training format
     print("Transforming into training format")
@@ -59,11 +61,12 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--index_name", default="crypto", choices=["dow", "euro", "crypto"], help="index name")
-    ap.add_argument("--start_date", default="2022-12-31", help="start date")
-    ap.add_argument("--end_date", default="2023-12-31", help="end date")
+    ap.add_argument("--start_date", default="2023-01-25", help="start date")
+    ap.add_argument("--end_date", default="2024-01-25", help="end date")
     ap.add_argument("--min_past_weeks", default=1, help="min past weeks")
     ap.add_argument("--max_past_weeks", default=4, help="max past weeks")
-    ap.add_argument("--train_ratio", default=0.6, help="train ratio")
+    ap.add_argument("--train_ratio", default=0.65, help="train ratio")
+    ap.add_argument("--acquire_data", default=False, help="acquire data")
     args = vars(ap.parse_args())
 
     main(args)

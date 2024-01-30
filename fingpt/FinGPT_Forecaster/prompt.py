@@ -119,7 +119,6 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
     all_prompts = []
 
     for row_idx, row in df.iterrows():
-
         prompt = ""
         if len(prev_rows) >= min_past_weeks:
             idx = min(random.choice(range(min_past_weeks, max_past_weeks+1)), len(prev_rows))
@@ -150,7 +149,10 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
 
         prediction = map_bin_label(row['Bin Label'])
         
-        prompt = info_prompt + '\n' + prompt + '\n' + basics
+        if with_basics:
+            prompt = info_prompt + '\n' + prompt + '\n' + basics
+        else:
+            prompt = info_prompt + '\n' + prompt
 
         prompt += PROMPT_END['crypto' if symbol in CRYPTO else 'company'].format(
             start_date=row['Start Date'],

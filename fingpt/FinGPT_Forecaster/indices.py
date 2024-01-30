@@ -16,12 +16,50 @@ EURO_STOXX_50 = [
 
 CRYPTO = [
     "BTC-USD", 
-    "ETH-USD",
-    "ADA-USD",
-    "XRP-USD",
-    "SOL-USD",
-    "DOT-USD",
-    "AVAX-USD",
-    "DOGE-USD",
-    "TRX-USD"
+    # "ETH-USD",
+    # "ADA-USD",
+    # "XRP-USD",
+    # "SOL-USD",
+    # "DOT-USD",
+    # "AVAX-USD",
+    # "DOGE-USD",
+    # "TRX-USD"
+]
+
+
+
+CRYPTO = [
+    # Top 30 cryptos by market cap according to Yahoo! Finance as of 2024-01-27
+    # Removed stablecoins
+
+    'BTC-USD', 
+    'ETH-USD', 
+    # 'USDT-USD', # Stable Coin
+    'BNB-USD', 
+    'SOL-USD', 
+    'XRP-USD', 
+    # 'USDC-USD', # Stable Coin
+    'STETH-USD', 
+    'ADA-USD', 
+    'AVAX-USD', 
+    'DOGE-USD', 
+    'TRX-USD', 
+    'WTRX-USD', 
+    'DOT-USD',
+    'LINK-USD',
+    'MATIC-USD',
+    'TON11419-USD',
+    # 'WBTC-USD', # Error 
+    'ICP-USD',
+    # 'SHIB-USD', # Error
+    # 'DAI-USD', # Stable Coin
+    'LTC-USD',
+    'BCH-USD',
+    'LEO-USD',
+    'ATOM-USD',
+    'UNI7083-USD',
+    'ETC-USD',
+    'XLM-USD',
+    'OKB-USD', 
+    'APT21794-USD'
 ]

@@ -13,12 +13,14 @@ from collections import defaultdict
 import datasets
 from datasets import Dataset
 from openai import OpenAI
+import requests
 
 from indices import *
 from prompt import get_all_prompts
 
 finnhub_client = finnhub.Client(api_key=os.environ.get("FINNHUB_KEY"))
 client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
+crypto_news_key = os.environ.get("CRYPTO_NEWS_KEY")
 
 
 # ----------------------------------------------------------------------------------- #
@@ -82,6 +84,50 @@ def get_news(symbol, data):
     return data
 
 
+def get_crpyto_news_date_range(api_key, symbol, _from, to, sortby="rank", n_items=100, page=1):
+    # :param _from: start datesin format YYYY-MM-DD
+    # :param to: start datesin format YYYY-MM-DD
+
+    # INFO: Will do 100 items per week for now
+
+    start_date = datetime.strptime(_from, '%Y-%m-%d').strftime('%m%d%Y')
+    end_date = datetime.strptime(to, '%Y-%m-%d').strftime('%m%d%Y')
+    url = f"https://cryptonews-api.com/api/v1/?tickers={symbol}&items={n_items}&page={page}&date={start_date}-{end_date}&sortby={sortby}&token={api_key}"
+
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return "Error: " + str(response.status_code)
+
+
+def get_crypto_news(symbol, data):
+
+    news_list = []
+
+    for end_date, row in data.iterrows():
+        start_date = row['Start Date'].strftime('%Y-%m-%d')
+        end_date = row['End Date'].strftime('%Y-%m-%d')
+
+        weekly_news = get_crpyto_news_date_range(crypto_news_key, symbol, _from=start_date, to=end_date)
+        weekly_news = [
+            {
+                "date": datetime.strptime(n['date'], '%a, %d %b %Y %H:%M:%S %z').strftime('%Y%m%d%H%M%S'),
+                "headline": n['title'],
+                "summary": n['text'],
+                "sentiment": n['sentiment'],
+            }
+            for n in weekly_news['data']
+        ]
+
+        weekly_news.sort(key=lambda x: x['date'])
+        news_list.append(json.dumps(weekly_news))
+
+    data['News'] = news_list
+    
+    return data
+
+
 def get_basics(symbol, data, start_date, always=False):
     
     basic_financials = finnhub_client.company_basic_financials(symbol, 'all')
@@ -118,7 +164,11 @@ def get_basics(symbol, data, start_date, always=False):
 def prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=True):
     
     data = get_returns(symbol, start_date, end_date)
-    data = get_news(symbol, data)
+    if symbol in CRYPTO:
+        news_crypto_symbol = symbol.split('-')[0]
+        data = get_crypto_news(news_crypto_symbol, data)
+    else:
+        data = get_news(symbol, data)
     
     if with_basics:
         data = get_basics(symbol, data, start_date)
@@ -152,7 +202,6 @@ def initialize_csv(filename):
 def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, max_past_weeks=3, with_basics=True):
 
     for symbol in tqdm(symbol_list):
-        
         csv_file = f'{data_dir}/{symbol}_{start_date}_{end_date}_gpt-4.csv' if with_basics else \
                    f'{data_dir}/{symbol}_{start_date}_{end_date}_nobasics_gpt-4.csv'
         
@@ -166,6 +215,9 @@ def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, ma
         prompts = get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics)
         system_prompt = SYSTEM_PROMPTS["crypto"] if symbol in CRYPTO else SYSTEM_PROMPTS["company"]
         for i, prompt in enumerate(prompts):
+            print(f"Processing {symbol} - {i}/{len(prompts)}")
+            # print("SYSTEM PROMPT: ", system_prompt)
+            # print("PROMPT: ", prompt)
             
             if i < pre_done:
                 continue
@@ -189,6 +241,7 @@ def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, ma
             
             answer = completion.choices[0].message.content if cnt < 5 else ""
             append_to_csv(csv_file, prompt, answer)
+
 
 
 

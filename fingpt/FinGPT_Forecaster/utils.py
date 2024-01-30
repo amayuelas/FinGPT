@@ -1,7 +1,8 @@
 import re
 import os
+import numpy as np
 import datasets
-from sklearn.metrics import accuracy_score, mean_squared_error
+from sklearn.metrics import accuracy_score, mean_squared_error, mean_absolute_error
 from collections import defaultdict
 from rouge_score import rouge_scorer
 
@@ -73,6 +74,23 @@ def load_dataset(names, from_remote=False):
     return dataset_list
 
 
+def from_bin_to_margin(pred):
+    if re.search(r'up|increase', pred.lower()):
+        pred_bin = 1
+    elif re.search(r'down|decrease|decline', pred.lower()):
+        pred_bin = -1
+    else:
+        pred_bin = 0
+
+    match_res = re.search(r'(\d)-(\d)%', pred)
+    if not match_res:
+        match_res = re.search(r'(?:more than )?(\d)+?%', pred)
+
+    pred_margin = pred_bin * (int(match_res.group(1)) + 0.5) if match_res else 0
+    return pred_margin, pred_bin
+
+
+
 def parse_answer(answer):
     
     match_res = re.match(r"^\s*\[Positive Developments\]:\s*(.*)\s*\[Potential Concerns\]:\s*(.*)\s*\[Prediction (&|and) Analysis\]:\s*(.*)\s*$", answer, flags=re.DOTALL)
@@ -87,19 +105,8 @@ def parse_answer(answer):
         
     pred, anal = match_res.group(1), match_res.group(2)
         
-    if re.search(r'up|increase', pred.lower()):
-        pred_bin = 1
-    elif re.search(r'down|decrease|decline', pred.lower()):
-        pred_bin = -1
-    else:
-        pred_bin = 0
-            
-    match_res = re.search(r'(\d)-(\d)%', pred)
-    if not match_res:
-        match_res = re.search(r'(?:more than )?(\d)+?%', pred)    
-        
-    pred_margin = pred_bin * (int(match_res.group(1)) + 0.5) if match_res else 0.
-        
+    pred_margin, pred_bin = from_bin_to_margin(pred)   
+
     return {
         "positive developments": pros,
         "potential concerns": cons,
@@ -141,22 +148,28 @@ def calc_metrics(answers, gts):
     
     bin_acc = accuracy_score(gts_dict['prediction_binary'], answers_dict['prediction_binary'])
     mse = mean_squared_error(gts_dict['prediction'], answers_dict['prediction'])
-    
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(gts_dict['prediction'],answers_dict['prediction'])
+
     pros_rouge_scores = calc_rouge_score(gts_dict['positive developments'], answers_dict['positive developments'])
     cons_rouge_scores = calc_rouge_score(gts_dict['potential concerns'], answers_dict['potential concerns'])
     anal_rouge_scores = calc_rouge_score(gts_dict['analysis'], answers_dict['analysis'])
                               
-    print(f"\nBinary Accuracy: {bin_acc:.2f}  |  Mean Square Error: {mse:.2f}")
-    print(f"\nRouge Score of Positive Developments: {pros_rouge_scores}")
-    print(f"\nRouge Score of Potential Concerns: {cons_rouge_scores}")
-    print(f"\nRouge Score of Summary Analysis: {anal_rouge_scores}")
+    # print(f"\nBinary Accuracy: {bin_acc:.2f}  |  Mean Square Error: {mse:.2f}")
+    # print(f"\nRouge Score of Positive Developments: {pros_rouge_scores}")
+    # print(f"\nRouge Score of Potential Concerns: {cons_rouge_scores}")
+    # print(f"\nRouge Score of Summary Analysis: {anal_rouge_scores}")
                               
     return {
         "valid_count": len(answers_dict['prediction']),
         "bin_acc": bin_acc,
         "mse": mse,
+        "rmse": rmse,
+        "mae": mae,
         "pros_rouge_scores": pros_rouge_scores,
         "cons_rouge_scores": cons_rouge_scores,
         "anal_rouge_scores": anal_rouge_scores
     }
-    
+
+
+
