@@ -12,6 +12,16 @@ finnhub_client = finnhub.Client(api_key=os.environ.get("FINNHUB_KEY"))
 
 
 
+# Prompt structure
+# Instruction: ...
+# [Company Introduction]
+# [Returns]
+# - From week A to week B: ...
+# [Index]
+# [Relevant News]
+# Final Instruction
+
+
 def get_company_prompt(symbol):
     
     profile = finnhub_client.company_profile2(symbol=symbol)
@@ -39,9 +49,10 @@ def get_prompt_by_row(symbol, row):
 
     start_date = row['Start Date'] if isinstance(row['Start Date'], str) else row['Start Date'].strftime('%Y-%m-%d')
     end_date = row['End Date'] if isinstance(row['End Date'], str) else row['End Date'].strftime('%Y-%m-%d')
-    term = 'increased' if row['End Price'] > row['Start Price'] else 'decreased'
-    head = "From {} to {}, {}'s stock price {} from {:.2f} to {:.2f}. News during this period are listed below:\n\n".format(
-        start_date, end_date, symbol, term, row['Start Price'], row['End Price'])
+    # head = "From {} to {}, {}'s stock price {} from {:.2f} to {:.2f}. News during this period are listed below:\n\n".format(
+    #     start_date, end_date, symbol, term, row['Start Price'], row['End Price'])
+    
+    head = f"From {start_date} to {end_date}, news during this period are listed below:\n\n"
     
     news = json.loads(row["News"])
     news = ["[Headline]: {}\n[Summary]: {}\n".format(
@@ -72,6 +83,21 @@ def get_crypto_prompt_by_row(symbol, row):
         not n['summary'].startswith("Looking for stock market analysis and research with proves results?")]
 
     return head, news, None
+
+def get_returns_by_row(symbol, row):
+    start_date = row['Start Date'] if isinstance(row['Start Date'], str) else row['Start Date'].strftime('%Y-%m-%d')
+    end_date = row['End Date'] if isinstance(row['End Date'], str) else row['End Date'].strftime('%Y-%m-%d')
+    term = 'increased' if row['End Price'] > row['Start Price'] else 'decreased'
+    time_series = f"From {start_date} to {end_date}, {symbol}'s stock price {term} from {row['Start Price']:.2f} to {row['End Price']:.2f} = {100*row['Weekly Returns']:.2f}% => {row['Bin Label']}"
+    return time_series
+
+
+def get_index_returns(symbol, row):
+    start_date = row['Start Date'] if isinstance(row['Start Date'], str) else row['Start Date'].strftime('%Y-%m-%d')
+    end_date = row['End Date'] if isinstance(row['End Date'], str) else row['End Date'].strftime('%Y-%m-%d')
+    term = 'increased' if row['End Price'] > row['Start Price'] else 'decreased'
+    time_series = f"From {start_date} to {end_date}, {symbol}'s stock price {term} from {row['Index Start Price']:.2f} to {row['Index End Price']:.2f} = {100*row['Index Weekly Returns']:.2f}%"
+    return time_series
 
 
 def sample_news(news, k=5):
@@ -132,7 +158,7 @@ PROMPT_END = {
         "Then let's assume your prediction for next week ({start_date} to {end_date}) is {prediction}. Provide a summary analysis to support your prediction. The prediction result need to be inferred from your analysis at the end, and thus not appearing as a foundational factor of your analysis."
 }
 
-def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, max_past_weeks=3, n_articles=3, with_basics=True):
+def get_all_prompts(symbol, index_name, data_dir, start_date, end_date, min_past_weeks=1, max_past_weeks=3, n_articles=3, with_basics=True):
 
     
     if with_basics:
@@ -147,9 +173,15 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
 
     prev_rows = []
     all_prompts = []
-
+    all_rows = []
     for row_idx, row in df.iterrows():
-        prompt = ""
+        prompt = "\n[Related News]\n"
+        returns = "\n\n[Returns]\nThe stock price movement has been as follows:\n\n"
+        if symbol in CRYPTO:
+            index_returns = ""
+        else:
+            index_returns = f"\n\n[Index Returns]\n{symbol} stock is contained in the index {index_name}. The behavior of this index has been the following:\n\n"
+        rows = []
         if len(prev_rows) >= min_past_weeks:
             idx = min(random.choice(range(min_past_weeks, max_past_weeks+1)), len(prev_rows))
             for i in range(-idx, 0):
@@ -165,12 +197,23 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
                 else:
                     prompt += "No relative news reported."
 
+                returns += prev_rows[i][3] + '\n'
+                if symbol not in CRYPTO:
+                    index_returns += prev_rows[i][4] + '\n'
+
+                rows.append(prev_rows[i][5])
+
         if symbol in CRYPTO:
             head, news, basics = get_crypto_prompt_by_row(symbol, row)
+            index_time_series = None
         else:
             head, news, basics = get_prompt_by_row(symbol, row)
+            index_time_series = get_index_returns(index_name, row)
 
-        prev_rows.append((head, news, basics))
+        time_series = get_returns_by_row(symbol, row)
+
+
+        prev_rows.append((head, news, basics, time_series, index_time_series, row))
         if len(prev_rows) > max_past_weeks:
             prev_rows.pop(0)  
 
@@ -178,11 +221,11 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
             continue
 
         prediction = map_bin_label(row['Bin Label'])
-        
+
         if with_basics:
-            prompt = info_prompt + '\n' + prompt + '\n' + basics
+            prompt = info_prompt + '\n'  + prompt + '\n' + index_returns +'\n' + basics + '\n' + returns
         else:
-            prompt = info_prompt + '\n' + prompt
+            prompt = info_prompt + '\n' + prompt + '\n' + index_returns + "\n" + returns
 
         prompt += PROMPT_END['crypto' if symbol in CRYPTO else 'company'].format(
             start_date=row['Start Date'],
@@ -191,7 +234,12 @@ def get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks=1, ma
             symbol=symbol
         )
 
+        if len(rows) == 0:
+            continue
+
         all_prompts.append(prompt.strip())
-    
-    return all_prompts
+        rows.append(row)
+        all_rows.append(rows)
+
+    return all_prompts, all_rows
 

@@ -16,7 +16,7 @@ from openai import OpenAI
 import requests
 
 from indices import *
-from prompt import get_all_prompts
+from prompt2 import get_all_prompts
 
 finnhub_client = finnhub.Client(api_key=os.environ.get("FINNHUB_KEY"))
 client = OpenAI(api_key=os.environ.get("OPENAI_KEY"))
@@ -32,7 +32,7 @@ def bin_mapping(ret):
     up_down = 'U' if ret >= 0 else 'D'
     integer = math.ceil(abs(100 * ret))
     
-    return up_down + (str(integer) if integer <= 5 else '5+')
+    return up_down + (str(integer) if integer <= 100 else '100+')
 
 
 def get_returns(stock_symbol, start_date, end_date):
@@ -57,6 +57,7 @@ def get_returns(stock_symbol, start_date, end_date):
     weekly_data['Bin Label'] = weekly_data['Weekly Returns'].map(bin_mapping)
 
     return weekly_data
+
 
 
 def get_news(symbol, data):
@@ -128,7 +129,7 @@ def get_crypto_news(symbol, data):
     return data
 
 
-def get_basics(symbol, data, start_date, always=False):
+def get_basics(symbol, data, start_date, always=True):
     
     basic_financials = finnhub_client.company_basic_financials(symbol, 'all')
     
@@ -161,21 +162,28 @@ def get_basics(symbol, data, start_date, always=False):
     return data
     
 
-def prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=True):
+def prepare_data_for_symbol(symbol, index_symbol, data_dir, start_date, end_date, with_basics=True):
     
     data = get_returns(symbol, start_date, end_date)
+ 
     if symbol in CRYPTO:
         news_crypto_symbol = symbol.split('-')[0]
         data = get_crypto_news(news_crypto_symbol, data)
     else:
         data = get_news(symbol, data)
+
+        index_data = get_returns(index_symbol, start_date, end_date)
+
+        data["Index Start Price"] = index_data["Start Price"].values
+        data["Index End Price"] = index_data["End Price"].values
+        data["Index Weekly Returns"] = index_data["Weekly Returns"].values
     
     if with_basics:
         data = get_basics(symbol, data, start_date)
         data.to_csv(f"{data_dir}/{symbol}_{start_date}_{end_date}.csv")
     else:
         data['Basics'] = [json.dumps({})] * len(data)
-        data.to_csv(f"{data_dir}/{symbol}_{start_date}_{end_date}_nobasics.csv")
+        data.to_csv(f"{data_dir}/{symbol}_{start_date}_{end_date}_nobasics.csv", index=False)
     
     return data
 
@@ -185,21 +193,24 @@ def prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=
 # ----------------------------------------------------------------------------------- #
 
 
-def append_to_csv(filename, input_data, output_data):
+def append_to_csv(filename, row):
     
     with open(filename, mode='a', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([input_data, output_data])
+        writer.writerow(row)
 
         
 def initialize_csv(filename):
     
     with open(filename, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(["prompt", "answer"])
+        writer.writerow(["prompt", "answer", 
+                         "Start Date", "End Date", "Start Price", "End Price","Weekly Returns","Bin Label", 
+                         "Index Start Price", "Index End Price", "Index Weekly Returns"
+                         ])
 
 
-def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, max_past_weeks=3, with_basics=True):
+def query_gpt4(symbol_list, index_name, data_dir, start_date, end_date, min_past_weeks=1, max_past_weeks=3, with_basics=True, query_gpt=True):
 
     for symbol in tqdm(symbol_list):
         csv_file = f'{data_dir}/{symbol}_{start_date}_{end_date}_gpt-4.csv' if with_basics else \
@@ -212,9 +223,10 @@ def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, ma
             df = pd.read_csv(csv_file)
             pre_done = len(df)
 
-        prompts = get_all_prompts(symbol, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics)
+        prompts, rows_list = get_all_prompts(symbol, index_name, data_dir, start_date, end_date, min_past_weeks=min_past_weeks, max_past_weeks=max_past_weeks, with_basics=with_basics)
+
         system_prompt = SYSTEM_PROMPTS["crypto"] if symbol in CRYPTO else SYSTEM_PROMPTS["company"]
-        for i, prompt in enumerate(prompts):
+        for i, (prompt, rows) in enumerate(zip(prompts, rows_list)):
             print(f"Processing {symbol} - {i}/{len(prompts)}")
             # print("SYSTEM PROMPT: ", system_prompt)
             # print("PROMPT: ", prompt)
@@ -223,24 +235,42 @@ def query_gpt4(symbol_list, data_dir, start_date, end_date, min_past_weeks=1, ma
                 continue
 
             # print(f"{symbol} - {i}")
-            
-            cnt = 0
-            while cnt < 5:
-                try:
-                    completion = client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                          ]
-                    )
-                    break    
-                except Exception:
-                    cnt += 1
-                    print(f'retry cnt {cnt}')
-            
-            answer = completion.choices[0].message.content if cnt < 5 else ""
-            append_to_csv(csv_file, prompt, answer)
+            if query_gpt:
+                cnt = 0
+                while cnt < 5:
+                    try:
+                        completion = client.chat.completions.create(
+                            model="gpt-4",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        break    
+                    except Exception:
+                        cnt += 1
+                        print(f'retry cnt {cnt}')
+
+                answer = completion.choices[0].message.content if cnt < 5 else ""
+            else:
+                answer = ""
+            start_dates = [row['Start Date'] for row in rows]
+            end_dates = [row['End Date'] for row in rows]
+            start_price = [row['Start Price'] for row in rows]
+            end_price = [row['End Price'] for row in rows]
+            weekly_returns = [row['Weekly Returns'] for row in rows]
+            bin_label = [row['Bin Label'] for row in rows]
+            if symbol in CRYPTO:
+                index_start_price = ""
+                index_end_price = ""
+                index_weekly_returns = ""
+            else:
+                index_start_price = [row['Index Start Price'] for row in rows]
+                index_end_price = [row['Index End Price'] for row in rows]
+                index_weekly_returns = [row['Index Weekly Returns'] for row in rows]
+            append_to_csv(csv_file, [prompt, answer, 
+                                     start_dates, end_dates, start_price, end_price, weekly_returns, bin_label, 
+                                     index_start_price, index_end_price, index_weekly_returns])
 
 
 
@@ -260,7 +290,7 @@ SYSTEM_PROMPTS = {
     "Your answer format should be as follows:\n\n[Positive Developments]:\n1. ...\n\n[Potential Concerns]:\n1. ...\n\n[Prediction & Analysis]:\n...\n",
 }
 
-def gpt4_to_llama(symbol, data_dir, start_date, end_date, with_basics=True):
+def gpt4_to_llama(symbol, data_dir, start_date, end_date, with_basics=True, query_gpt=True):
 
     csv_file = f'{data_dir}/{symbol}_{start_date}_{end_date}_gpt-4.csv' if with_basics else \
                    f'{data_dir}/{symbol}_{start_date}_{end_date}_nobasics_gpt-4.csv'
@@ -268,6 +298,8 @@ def gpt4_to_llama(symbol, data_dir, start_date, end_date, with_basics=True):
     df = pd.read_csv(csv_file)
     
     prompts, answers, periods, labels = [], [], [], []
+    start_dates, end_dates, start_prices, end_prices, weekly_returns, bin_labels = [], [], [], [], [], []
+    index_start_prices, index_end_prices, index_weekly_returns = [], [], []
     
     for i, row in df.iterrows():
         
@@ -283,17 +315,20 @@ def gpt4_to_llama(symbol, data_dir, start_date, end_date, with_basics=True):
             f"Then make your prediction of the {symbol} cryptocurrency price movement for next week ({period}). Provide a summary analysis to support your prediction.",
             prompt
         )
-        try:
-            answer = re.sub(
-                r"\[Prediction & Analysis\]:\s*",
-                f"[Prediction & Analysis]:\nPrediction: {label.capitalize()}\nAnalysis: ",
-                answer
-            )
-        except Exception:
-            print(symbol, i)
-            print(label)
-            print(answer)
-            continue
+        if query_gpt:
+            try:
+                answer = re.sub(
+                    r"\[Prediction & Analysis\]:\s*",
+                    f"[Prediction & Analysis]:\nPrediction: {label.capitalize()}\nAnalysis: ",
+                    answer
+                )
+            except Exception:
+                print(symbol, i)
+                print(label)
+                print(answer)
+                continue
+        else:
+            answer = ""
             
         system_prompt = SYSTEM_PROMPTS["crypto"] if symbol in CRYPTO else SYSTEM_PROMPTS["company"]
         new_system_prompt = system_prompt.replace(':\n...', '\nPrediction: ...\nAnalysis: ...')
@@ -305,29 +340,52 @@ def gpt4_to_llama(symbol, data_dir, start_date, end_date, with_basics=True):
         answers.append(answer)
         periods.append(period)
         labels.append(label)
+
+        start_dates.append(row['Start Date'])
+        end_dates.append(row['End Date'])
+        start_prices.append(row['Start Price'])
+        end_prices.append(row['End Price'])
+        weekly_returns.append(row['Weekly Returns'])
+        bin_labels.append(row['Bin Label'])
+        index_start_prices.append(row['Index Start Price'])
+        index_end_prices.append(row['Index End Price'])
+        index_weekly_returns.append(row['Index Weekly Returns'])
+        
         
     return {
         "prompt": prompts,
         "answer": answers,
         "period": periods,
         "label": labels,
+
+        "start_date": start_dates,
+        "end_date": end_dates,
+        "start_price": start_prices,
+        "end_price": end_prices,
+        "weekly_returns": weekly_returns,
+        "bin_label": bin_labels,
+        "index_start_price": index_start_prices,
+        "index_end_price": index_end_prices,
+        "index_weekly_returns": index_weekly_returns
+
     }
 
 
-def create_dataset(symbol_list, data_dir, start_date, end_date, train_ratio=0.8, with_basics=True):
+def create_dataset(symbol_list, data_dir, start_date, end_date, train_ratio=0.8, with_basics=True, query_gpt=True):
 
     train_dataset_list = []
     test_dataset_list = []
 
     for symbol in symbol_list:
 
-        data_dict = gpt4_to_llama(symbol, data_dir, start_date, end_date,  with_basics)
+        data_dict = gpt4_to_llama(symbol, data_dir, start_date, end_date,  with_basics=with_basics, query_gpt=query_gpt)
 #         print(data_dict['prompt'][-1])
 #         print(data_dict['answer'][-1])
         symbols = [symbol] * len(data_dict['label'])
         data_dict.update({"symbol": symbols})
 
         dataset = Dataset.from_dict(data_dict)
+        dataset = dataset.sort("start_date")
         train_size = round(train_ratio * len(dataset))
 
         train_dataset_list.append(dataset.select(range(train_size)))

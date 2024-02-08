@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0,2,3,4,5,6,7 python eval.py \
-    --model_path finetuned_models/crpyto-2023-4-llama2-5e-5lr-qkvogud_202401281103 \
-    --dataset_path data/fingpt-forecaster-crypto-20230125-20240125-1-4-065 \
+CUDA_VISIBLE_DEVICES=7 python eval.py \
+    --model_path finetuned_models/fingpt-forecaster-dow-30-20221231-20231231-1-4-08-modified_202402022043 \
+    --dataset_path data/fingpt-forecaster-dow-30-20221231-20231231-1-4-08-modified \
     --eval_model peft

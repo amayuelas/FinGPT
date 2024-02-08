@@ -18,16 +18,25 @@ def main(args):
     max_past_weeks = args['max_past_weeks']
     train_ratio = args['train_ratio']
     acquire_data = args['acquire_data']
+    query_gpt = args['query_gpt']
+
 
     with_basics = True
     if index_name == "dow":
         index_name = "DOW-30"
+        index_symbol = "^DJI"
         index = DOW_30
+    elif index_name == "sp500":
+        index_name = "SP-500"
+        index_symbol = "^GSPC"
+        index = SP_500
     elif index_name == "euro":
         index_name = "EURO-STOXX-50"
+        index_symbol = "^STOXX50E"
         index = EURO_STOXX_50
     elif index_name == "crypto":
         index_name = "CRYPTO"
+        index_symbol = "^NCI" # Nasdaq Crypto Index
         index = CRYPTO
         with_basics = False
     else:
@@ -36,22 +45,23 @@ def main(args):
     data_dir = f"./data/{index_name}_{start_date}_{end_date}"
     os.makedirs(data_dir, exist_ok=True)
     
-    # Acquire data
-    if acquire_data:
-        print("Acquiring data")
-        for symbol in tqdm(index):
-            print(f"Processing {symbol}")
-            prepare_data_for_symbol(symbol, data_dir, start_date, end_date, with_basics=with_basics)
+    # # Acquire data
+    # if acquire_data:
+    #     print("Acquiring data")
+    #     for symbol in tqdm(index):
+    #         print(f"Processing {symbol}")
+    #         prepare_data_for_symbol(symbol, index_symbol, data_dir, start_date, end_date, with_basics=with_basics)
 
-    # # Generate prompt and query GPT-4
+
+    # # # Generate prompt and query GPT-4
     # print("Generating prompts and querying GPT-4")
-    # query_gpt4(index, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics=with_basics)
+    # query_gpt4(index, index_name, data_dir, start_date, end_date, min_past_weeks, max_past_weeks, with_basics=with_basics, query_gpt=query_gpt)
 
-    # Transform into training format
+    # # Transform into training format
     print("Transforming into training format")
-    dataset = create_dataset(index, data_dir, start_date, end_date, train_ratio, with_basics=with_basics)
+    dataset = create_dataset(index, data_dir, start_date, end_date, train_ratio, with_basics=with_basics, query_gpt=query_gpt)
 
-    # Save dataset
+    # # Save dataset
     dataset.save_to_disk(
         f"./data/fingpt-forecaster-{index_name.lower()}-{start_date.replace('-', '')}-{end_date.replace('-', '')}-{min_past_weeks}-{max_past_weeks}-{str(train_ratio).replace('.', '')}"
     )
@@ -60,13 +70,15 @@ def main(args):
 if __name__ == "__main__":
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--index_name", default="crypto", choices=["dow", "euro", "crypto"], help="index name")
-    ap.add_argument("--start_date", default="2023-01-25", help="start date")
-    ap.add_argument("--end_date", default="2024-01-25", help="end date")
-    ap.add_argument("--min_past_weeks", default=1, help="min past weeks")
-    ap.add_argument("--max_past_weeks", default=4, help="max past weeks")
-    ap.add_argument("--train_ratio", default=0.65, help="train ratio")
+    ap.add_argument("--index_name", default="dow", choices=["dow", "sp500", "euro", "crypto"], help="index name")
+    ap.add_argument("--start_date", default="2023-02-05", help="start date")
+    ap.add_argument("--end_date", default="2024-02-05", help="end date")
+    ap.add_argument("--min_past_weeks", default=8, help="min past weeks")
+    ap.add_argument("--max_past_weeks", default=8, help="max past weeks")
+    ap.add_argument("--train_ratio", default=0.8, help="train ratio")
     ap.add_argument("--acquire_data", default=False, help="acquire data")
+    ap.add_argument("--query_gpt", default=True, help="query GPT")
+
     args = vars(ap.parse_args())
 
     main(args)
